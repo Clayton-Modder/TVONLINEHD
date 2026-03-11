@@ -17,27 +17,36 @@ const JWT_SECRET = process.env.JWT_SECRET || "super-secret-key";
 async function startServer() {
   const app = express();
   const PORT = 3000;
-  const DATA_FILE = path.join(__dirname, "canais.json");
-  const USERS_FILE = path.join(__dirname, "users.json");
-  const DB_FILE = path.join(__dirname, "db.json");
+  const rootDir = process.cwd();
+  const DATA_FILE = path.join(rootDir, "canais.json");
+  const USERS_FILE = path.join(rootDir, "users.json");
+  const DB_FILE = path.join(rootDir, "db.json");
+  const CONFIG_FILE = path.join(rootDir, "config.json");
 
   app.use(cors());
   app.use(bodyParser.json());
 
   // Initialize files if they don't exist
-  if (!fs.existsSync(USERS_FILE)) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2));
-  }
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ reports: [] }, null, 2));
-  }
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ siteConfig: { title: "TV Online HD", subtitle: "Os melhores canais ao vivo" }, categories: ["Todos"], channels: [] }, null, 2));
-  }
+  const initFile = (file: string, initialData: any) => {
+    if (!fs.existsSync(file)) {
+      fs.writeFileSync(file, JSON.stringify(initialData, null, 2));
+      console.log(`Created ${file}`);
+    }
+  };
+
+  initFile(USERS_FILE, { users: [] });
+  initFile(DB_FILE, { reports: [] });
+  initFile(DATA_FILE, { 
+    siteConfig: { title: "TV Online HD", subtitle: "Os melhores canais ao vivo" }, 
+    categories: ["Todos", "Esportes", "Notícias", "Filmes", "Documentários", "Variedades"], 
+    channels: [] 
+  });
+  initFile(CONFIG_FILE, { adminAccessCode: "123456" });
 
   // Helper to read data
   const readData = (file: string) => {
     try {
+      if (!fs.existsSync(file)) return null;
       const data = fs.readFileSync(file, "utf-8");
       return JSON.parse(data);
     } catch (error) {
@@ -71,9 +80,23 @@ async function startServer() {
     });
   };
 
+  const authenticateAdmin = (req: any, res: any, next: any) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+      if (err || user.role !== 'admin') return res.sendStatus(403);
+      req.user = user;
+      next();
+    });
+  };
+
   // API Routes - Channels
   app.get("/api/data", (req, res) => {
-    res.json(readData(DATA_FILE) || { siteConfig: { title: "TV Online HD", subtitle: "" }, categories: [], channels: [] });
+    const data = readData(DATA_FILE);
+    res.json(data || { siteConfig: { title: "TV Online HD", subtitle: "Os melhores canais ao vivo" }, categories: ["Todos"], channels: [] });
   });
 
   app.post("/api/data", (req, res) => {
@@ -171,6 +194,48 @@ async function startServer() {
     res.json({ success: true, message: "Reporte enviado com sucesso" });
   });
 
+  // API Routes - Admin
+  app.post("/api/admin/login", (req, res) => {
+    const { code } = req.body;
+    const config = readData(CONFIG_FILE);
+
+    if (code === config.adminAccessCode) {
+      const token = jwt.sign({ role: 'admin' }, JWT_SECRET, { expiresIn: '2h' });
+      res.json({ success: true, token });
+    } else {
+      res.status(401).json({ success: false, message: "Código de acesso inválido" });
+    }
+  });
+
+  app.get("/api/admin/users", authenticateAdmin, (req, res) => {
+    const data = readData(USERS_FILE);
+    const usersWithoutPasswords = data.users.map(({ password, ...u }: any) => u);
+    res.json(usersWithoutPasswords);
+  });
+
+  app.get("/api/admin/data", authenticateAdmin, (req, res) => {
+    res.json(readData(DATA_FILE));
+  });
+
+  app.post("/api/admin/channels", authenticateAdmin, (req, res) => {
+    const { channels, categories } = req.body;
+    const data = readData(DATA_FILE);
+    
+    if (channels) data.channels = channels;
+    if (categories) data.categories = categories;
+    
+    writeData(DATA_FILE, data);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/admin/channels/:id", authenticateAdmin, (req, res) => {
+    const { id } = req.params;
+    const data = readData(DATA_FILE);
+    data.channels = data.channels.filter((c: any) => c.id !== id);
+    writeData(DATA_FILE, data);
+    res.json({ success: true });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -179,9 +244,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, "dist")));
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 

@@ -1,317 +1,446 @@
-import { useState } from 'react';
-import { X, Plus, Trash2, Edit2, Save, Tv, LayoutGrid, Type, Settings } from 'lucide-react';
-import { motion } from 'motion/react';
-import { Channel, SiteConfig } from '../constants';
+import { useState, useEffect, FormEvent } from 'react';
+import { Shield, Lock, Users, Tv, Plus, Trash2, LogOut, Save, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Channel } from '../constants';
+import { User } from '../types';
 
-interface AdminPanelProps {
-  data: {
-    siteConfig: SiteConfig;
-    categories: string[];
-    channels: Channel[];
-  };
-  onSave: (newData: any) => void;
-  onClose: () => void;
-}
+export default function AdminPanel() {
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [accessCode, setAccessCode] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'channels' | 'users' | 'raw'>('channels');
+  
+  // Admin Data
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [siteConfig, setSiteConfig] = useState<any>(null);
+  
+  // New Channel Form
+  const [newChannel, setNewChannel] = useState({
+    title: '',
+    subtitle: '',
+    category: '',
+    thumbnail: '',
+    url: '',
+    isLive: true
+  });
 
-export default function AdminPanel({ data, onSave, onClose }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<'config' | 'categories' | 'channels'>('channels');
-  const [localData, setLocalData] = useState(data);
-  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
+  useEffect(() => {
+    const token = localStorage.getItem('adminToken');
+    if (token) {
+      setIsAdmin(true);
+      fetchAdminData();
+    }
+  }, []);
 
-  const handleSave = () => {
-    onSave(localData);
-  };
-
-  const updateSiteConfig = (key: keyof SiteConfig, value: string) => {
-    setLocalData({
-      ...localData,
-      siteConfig: { ...localData.siteConfig, [key]: value }
-    });
-  };
-
-  const addCategory = () => {
-    const name = prompt("Nome da nova categoria:");
-    if (name && !localData.categories.includes(name)) {
-      setLocalData({
-        ...localData,
-        categories: [...localData.categories, name]
+  const handleLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      const response = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: accessCode })
       });
+      
+      const data = await response.json();
+      if (data.success) {
+        localStorage.setItem('adminToken', data.token);
+        setIsAdmin(true);
+        fetchAdminData();
+      } else {
+        setError(data.message);
+      }
+    } catch (err) {
+      setError('Erro ao conectar com o servidor');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const removeCategory = (cat: string) => {
-    if (confirm(`Excluir categoria "${cat}"?`)) {
-      setLocalData({
-        ...localData,
-        categories: localData.categories.filter(c => c !== cat)
-      });
+  const fetchAdminData = async () => {
+    const token = localStorage.getItem('adminToken');
+    try {
+      const [dataRes, usersRes] = await Promise.all([
+        fetch('/api/admin/data', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/admin/users', { headers: { 'Authorization': `Bearer ${token}` } })
+      ]);
+      
+      if (dataRes.ok && usersRes.ok) {
+        const data = await dataRes.json();
+        const usersData = await usersRes.json();
+        setChannels(data.channels || []);
+        setCategories(data.categories || ["Todos"]);
+        setSiteConfig(data.siteConfig || { title: "TV Online HD", subtitle: "Os melhores canais ao vivo" });
+        setUsers(usersData || []);
+      } else if (dataRes.status === 403) {
+        handleLogout();
+      }
+    } catch (err) {
+      console.error('Error fetching admin data:', err);
     }
   };
 
-  const addChannel = () => {
-    const newChannel: Channel = {
-      id: `channel-${Date.now()}`,
-      title: "Novo Canal",
-      subtitle: "Subtítulo",
-      thumbnail: "https://picsum.photos/seed/tv/200/200",
-      category: localData.categories[0] || "Todos",
-      isLive: true,
-      url: "",
-      description: "",
-      epg: []
-    };
-    setLocalData({
-      ...localData,
-      channels: [newChannel, ...localData.channels]
-    });
-    setEditingChannelId(newChannel.id);
+  const handleLogout = () => {
+    localStorage.removeItem('adminToken');
+    setIsAdmin(false);
+    setAccessCode('');
   };
 
-  const updateChannel = (id: string, updates: Partial<Channel>) => {
-    setLocalData({
-      ...localData,
-      channels: localData.channels.map(c => c.id === id ? { ...c, ...updates } : c)
-    });
-  };
-
-  const removeChannel = (id: string) => {
-    if (confirm("Excluir este canal?")) {
-      setLocalData({
-        ...localData,
-        channels: localData.channels.filter(c => c.id !== id)
+  const handleAddChannel = async (e: FormEvent) => {
+    e.preventDefault();
+    const token = localStorage.getItem('adminToken');
+    const id = Math.random().toString(36).substr(2, 9);
+    const updatedChannels = [...channels, { ...newChannel, id }];
+    
+    try {
+      const response = await fetch('/api/admin/channels', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ channels: updatedChannels })
       });
+      
+      if (response.ok) {
+        setChannels(updatedChannels);
+        setNewChannel({ title: '', subtitle: '', category: '', thumbnail: '', url: '', isLive: true });
+      }
+    } catch (err) {
+      console.error('Error adding channel:', err);
     }
   };
+
+  const handleDeleteChannel = async (id: string) => {
+    const token = localStorage.getItem('adminToken');
+    try {
+      const response = await fetch(`/api/admin/channels/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        setChannels(channels.filter(c => c.id !== id));
+      }
+    } catch (err) {
+      console.error('Error deleting channel:', err);
+    }
+  };
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-sans">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl p-8 shadow-2xl"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center mb-4">
+              <Shield className="w-8 h-8 text-red-500" />
+            </div>
+            <h1 className="text-2xl font-bold text-white">Painel Administrativo</h1>
+            <p className="text-slate-400 text-sm mt-2">Insira o código de acesso para continuar</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                Código de Acesso
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                <input
+                  type="password"
+                  value={accessCode}
+                  onChange={(e) => setAccessCode(e.target.value)}
+                  placeholder="••••••"
+                  className="w-full bg-slate-800 border border-white/5 rounded-2xl py-4 pl-12 pr-4 text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all"
+                  required
+                />
+              </div>
+            </div>
+
+            {error && (
+              <motion.div 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 p-4 rounded-2xl border border-red-500/20"
+              >
+                <AlertCircle className="w-4 h-4" />
+                {error}
+              </motion.div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-red-600/20 flex items-center justify-center gap-2"
+            >
+              {isLoading ? 'Verificando...' : 'Acessar Painel'}
+            </button>
+          </form>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
-    <motion.div 
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="fixed inset-0 z-[300] bg-slate-950/95 backdrop-blur-xl flex flex-col"
-    >
-      <header className="h-20 border-b border-white/5 flex items-center justify-between px-8 shrink-0">
-        <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans">
+      {/* Header */}
+      <header className="bg-slate-900 border-b border-white/5 px-6 py-4 flex items-center justify-between sticky top-0 z-50">
+        <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-red-500 rounded-xl flex items-center justify-center shadow-lg shadow-red-500/20">
-            <Settings className="w-6 h-6 text-white" />
+            <Shield className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">Painel de Administração</h2>
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-widest">Gerencie seu conteúdo</p>
+            <h1 className="font-bold text-white">Admin Dashboard</h1>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Sistema de Gerenciamento</p>
           </div>
         </div>
-
-        <div className="flex items-center gap-4">
+        
+        <div className="flex items-center gap-3">
           <button 
-            onClick={handleSave}
-            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-500/20"
+            onClick={() => window.location.href = '/'}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-sm font-bold transition-all mr-2"
           >
-            <Save className="w-4 h-4" />
-            Salvar Alterações
+            Voltar ao Site
           </button>
           <button 
-            onClick={onClose}
-            className="p-2.5 hover:bg-white/10 rounded-full transition-colors text-slate-400 hover:text-white"
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-sm font-bold transition-all"
           >
-            <X className="w-6 h-6" />
+            <LogOut className="w-4 h-4" />
+            Sair
           </button>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <nav className="w-64 border-r border-white/5 p-6 space-y-2">
+      <div className="max-w-7xl mx-auto p-6">
+        {/* Tabs */}
+        <div className="flex items-center gap-2 mb-8 bg-slate-900/50 p-1.5 rounded-2xl border border-white/5 w-fit">
           <button 
             onClick={() => setActiveTab('channels')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'channels' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'channels' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'hover:bg-white/5 text-slate-400'}`}
           >
-            <Tv className="w-5 h-5" />
+            <Tv className="w-4 h-4" />
             Canais
           </button>
           <button 
-            onClick={() => setActiveTab('categories')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'categories' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'users' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'hover:bg-white/5 text-slate-400'}`}
           >
-            <LayoutGrid className="w-5 h-5" />
-            Categorias
+            <Users className="w-4 h-4" />
+            Usuários
           </button>
           <button 
-            onClick={() => setActiveTab('config')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-sm transition-all ${activeTab === 'config' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+            onClick={() => setActiveTab('raw')}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'raw' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'hover:bg-white/5 text-slate-400'}`}
           >
-            <Type className="w-5 h-5" />
-            Configurações
+            <Save className="w-4 h-4" />
+            Dados Brutos
           </button>
-        </nav>
+        </div>
 
-        {/* Content Area */}
-        <main className="flex-1 overflow-y-auto p-8">
-          {activeTab === 'config' && (
-            <div className="max-w-2xl space-y-8">
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold text-white">Textos do Site</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Título do Site</label>
-                    <input 
-                      type="text" 
-                      value={localData.siteConfig.title}
-                      onChange={(e) => updateSiteConfig('title', e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-red-500 transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Subtítulo / Descrição</label>
-                    <input 
-                      type="text" 
-                      value={localData.siteConfig.subtitle}
-                      onChange={(e) => updateSiteConfig('subtitle', e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-red-500 transition-colors"
-                    />
-                  </div>
+        <AnimatePresence mode="wait">
+          {activeTab === 'channels' && (
+            <motion.div 
+              key="channels"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-8"
+            >
+              {/* Add Channel Form */}
+              <div className="lg:col-span-1">
+                <div className="bg-slate-900 border border-white/10 rounded-3xl p-6 sticky top-24">
+                  <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                    <Plus className="w-5 h-5 text-red-500" />
+                    Novo Canal
+                  </h2>
+                  <form onSubmit={handleAddChannel} className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Nome do Canal</label>
+                      <input 
+                        type="text" 
+                        value={newChannel.title}
+                        onChange={e => setNewChannel({...newChannel, title: e.target.value})}
+                        className="w-full bg-slate-800 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                        placeholder="Ex: Globo RJ"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Subtítulo / Qualidade</label>
+                      <input 
+                        type="text" 
+                        value={newChannel.subtitle}
+                        onChange={e => setNewChannel({...newChannel, subtitle: e.target.value})}
+                        className="w-full bg-slate-800 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                        placeholder="Ex: Full HD"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Categoria</label>
+                      <select 
+                        value={newChannel.category}
+                        onChange={e => setNewChannel({...newChannel, category: e.target.value})}
+                        className="w-full bg-slate-800 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                        required
+                      >
+                        <option value="">Selecionar...</option>
+                        {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">URL do Logo (Thumbnail)</label>
+                      <input 
+                        type="url" 
+                        value={newChannel.thumbnail}
+                        onChange={e => setNewChannel({...newChannel, thumbnail: e.target.value})}
+                        className="w-full bg-slate-800 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                        placeholder="https://..."
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">URL do Stream (HLS/Embed)</label>
+                      <input 
+                        type="url" 
+                        value={newChannel.url}
+                        onChange={e => setNewChannel({...newChannel, url: e.target.value})}
+                        className="w-full bg-slate-800 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                        placeholder="https://.../index.m3u8"
+                        required
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition-all mt-2"
+                    >
+                      Adicionar Canal
+                    </button>
+                  </form>
                 </div>
               </div>
-            </div>
-          )}
 
-          {activeTab === 'categories' && (
-            <div className="max-w-2xl space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white">Gerenciar Categorias</h3>
-                <button 
-                  onClick={addCategory}
-                  className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-bold uppercase tracking-widest text-white transition-all border border-white/5"
-                >
-                  <Plus className="w-4 h-4" />
-                  Nova Categoria
-                </button>
-              </div>
-              <div className="grid grid-cols-1 gap-3">
-                {localData.categories.map((cat) => (
-                  <div key={cat} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 group">
-                    <span className="font-bold text-slate-200">{cat}</span>
-                    <button 
-                      onClick={() => removeCategory(cat)}
-                      className="p-2 text-slate-500 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'channels' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-white">Lista de Canais</h3>
-                <button 
-                  onClick={addChannel}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 rounded-xl text-xs font-bold uppercase tracking-widest text-white transition-all shadow-lg shadow-red-500/20"
-                >
-                  <Plus className="w-4 h-4" />
-                  Adicionar Canal
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4">
-                {localData.channels.map((channel) => (
-                  <div key={channel.id} className="bg-white/5 rounded-3xl border border-white/5 overflow-hidden">
-                    <div className="p-6 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 bg-white rounded-2xl p-2 flex items-center justify-center">
-                          <img src={channel.thumbnail} alt="" className="w-full h-full object-contain" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-white">{channel.title}</h4>
-                          <p className="text-xs text-slate-400">{channel.category} • {channel.subtitle}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => setEditingChannelId(editingChannelId === channel.id ? null : channel.id)}
-                          className="p-3 bg-white/5 hover:bg-white/10 rounded-xl text-slate-300 transition-all"
-                        >
-                          <Edit2 className="w-5 h-5" />
-                        </button>
-                        <button 
-                          onClick={() => removeChannel(channel.id)}
-                          className="p-3 bg-white/5 hover:bg-red-500/10 text-slate-300 hover:text-red-500 rounded-xl transition-all"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {editingChannelId === channel.id && (
-                      <div className="p-8 border-t border-white/5 bg-black/20 grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-4">
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">Título</label>
-                            <input 
-                              type="text" 
-                              value={channel.title}
-                              onChange={(e) => updateChannel(channel.id, { title: e.target.value })}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">Subtítulo</label>
-                            <input 
-                              type="text" 
-                              value={channel.subtitle}
-                              onChange={(e) => updateChannel(channel.id, { subtitle: e.target.value })}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">URL do Stream (Embed)</label>
-                            <input 
-                              type="text" 
-                              value={channel.url}
-                              onChange={(e) => updateChannel(channel.id, { url: e.target.value })}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">Thumbnail URL</label>
-                            <input 
-                              type="text" 
-                              value={channel.thumbnail}
-                              onChange={(e) => updateChannel(channel.id, { thumbnail: e.target.value })}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">Categoria</label>
-                            <select 
-                              value={channel.category}
-                              onChange={(e) => updateChannel(channel.id, { category: e.target.value })}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500"
+              {/* Channels List */}
+              <div className="lg:col-span-2">
+                <div className="bg-slate-900 border border-white/10 rounded-3xl overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-white/5">
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Canal</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Categoria</th>
+                        <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {channels.map(channel => (
+                        <tr key={channel.id} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <img src={channel.thumbnail} alt="" className="w-10 h-10 rounded-lg object-contain bg-black p-1" />
+                              <div>
+                                <div className="text-sm font-bold text-white">{channel.title}</div>
+                                <div className="text-xs text-slate-500">{channel.subtitle}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-1 bg-slate-800 rounded-md text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              {channel.category}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button 
+                              onClick={() => handleDeleteChannel(channel.id)}
+                              className="p-2 hover:bg-red-500/10 text-slate-500 hover:text-red-500 rounded-lg transition-all"
                             >
-                              {localData.categories.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1.5">Descrição</label>
-                            <textarea 
-                              value={channel.description}
-                              onChange={(e) => updateChannel(channel.id, { description: e.target.value })}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-red-500 h-20 resize-none"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            </motion.div>
           )}
-        </main>
+
+          {activeTab === 'users' && (
+            <motion.div 
+              key="users"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="bg-slate-900 border border-white/10 rounded-3xl overflow-hidden"
+            >
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-white/5">
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Usuário</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">ID</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Favoritos</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Pastas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {users.map(user => (
+                    <tr key={user.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <img src={user.profileImage} alt="" className="w-8 h-8 rounded-full bg-slate-800" />
+                          <div className="text-sm font-bold text-white">{user.username}</div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-slate-500 font-mono">{user.id}</td>
+                      <td className="px-6 py-4 text-sm text-slate-400">{user.favorites.length}</td>
+                      <td className="px-6 py-4 text-sm text-slate-400">{user.folders.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </motion.div>
+          )}
+
+          {activeTab === 'raw' && (
+            <motion.div 
+              key="raw"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              <div className="bg-slate-900 border border-white/10 rounded-3xl p-6">
+                <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                  <Tv className="w-4 h-4 text-red-500" />
+                  canais.json
+                </h3>
+                <pre className="bg-black/50 p-6 rounded-2xl text-xs font-mono text-emerald-400 overflow-auto max-h-[400px]">
+                  {JSON.stringify({ siteConfig, categories, channels }, null, 2)}
+                </pre>
+              </div>
+              <div className="bg-slate-900 border border-white/10 rounded-3xl p-6">
+                <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-red-500" />
+                  users.json
+                </h3>
+                <pre className="bg-black/50 p-6 rounded-2xl text-xs font-mono text-emerald-400 overflow-auto max-h-[400px]">
+                  {JSON.stringify(users, null, 2)}
+                </pre>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-    </motion.div>
+    </div>
   );
 }
