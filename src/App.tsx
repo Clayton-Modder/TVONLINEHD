@@ -28,7 +28,6 @@ export default function App() {
     const saved = localStorage.getItem('favorites');
     return saved ? JSON.parse(saved) : [];
   });
-  const [view, setView] = useState<'all' | 'favorites' | 'recent'>('all');
   const [recentIds, setRecentIds] = useState<string[]>(() => {
     const saved = localStorage.getItem('recent_channels');
     return saved ? JSON.parse(saved) : [];
@@ -166,10 +165,7 @@ export default function App() {
                             c.category === activeCategory;
     const matchesSearch = c.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           c.subtitle.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesView = view === 'all' || 
-                        (view === 'favorites' && favorites.includes(c.id)) ||
-                        (view === 'recent' && recentIds.includes(c.id));
-    return matchesCategory && matchesSearch && matchesView;
+    return matchesCategory && matchesSearch;
   });
 
   const handleOpenAdmin = () => {
@@ -199,7 +195,7 @@ export default function App() {
         onSettingsClick={() => setIsSettingsOpen(true)}
       />
       
-      <main className="max-w-7xl mx-auto pb-20">
+      <main className="max-w-7xl mx-auto pb-24 md:pb-20">
         <div className="px-6 py-12 text-center">
           <h1 className="text-4xl md:text-6xl font-black tracking-tighter text-white mb-4">
             {siteConfig.title.split(' ')[0]} <span className="text-red-500">{siteConfig.title.split(' ').slice(1).join(' ')}</span>
@@ -220,17 +216,17 @@ export default function App() {
             <div className="flex items-center gap-3">
               <div className="w-1 h-6 bg-red-500 rounded-full" />
               <h2 className="text-2xl font-bold tracking-tight">
-                {activeCategory === 'Favoritos' || view === 'favorites' 
+                {activeCategory === 'Favoritos'
                   ? 'Meus Favoritos' 
-                  : activeCategory === 'Recentes' || view === 'recent'
+                  : activeCategory === 'Recentes'
                   ? 'Canais Recentes'
                   : activeCategory}
               </h2>
               <span className="text-slate-500 text-sm font-medium ml-2">
                 ({filteredChannels.length} {
-                  activeCategory === 'Favoritos' || view === 'favorites' 
+                  activeCategory === 'Favoritos'
                     ? 'favoritos' 
-                    : activeCategory === 'Recentes' || view === 'recent'
+                    : activeCategory === 'Recentes'
                     ? 'recentes'
                     : 'canais'
                 })
@@ -287,31 +283,6 @@ export default function App() {
           )}
         </div>
       </main>
-
-      {/* Footer / Mobile Nav Simulation */}
-      <div className="fixed bottom-0 inset-x-0 h-16 bg-slate-900/80 backdrop-blur-lg border-t border-white/5 flex items-center justify-around px-6 md:hidden z-50">
-        <button 
-          onClick={() => setView('all')}
-          className={`flex flex-col items-center gap-1 ${view === 'all' ? 'text-red-500' : 'text-slate-500'}`}
-        >
-          <LayoutGrid className="w-5 h-5" />
-          <span className="text-[10px] font-bold uppercase">Canais</span>
-        </button>
-        <button 
-          onClick={() => setView('favorites')}
-          className={`flex flex-col items-center gap-1 ${view === 'favorites' ? 'text-red-500' : 'text-slate-500'}`}
-        >
-          <Heart className={`w-5 h-5 ${view === 'favorites' ? 'fill-current' : ''}`} />
-          <span className="text-[10px] font-bold uppercase">Favoritos</span>
-        </button>
-        <button 
-          onClick={() => setView('recent')}
-          className={`flex flex-col items-center gap-1 ${view === 'recent' ? 'text-red-500' : 'text-slate-500'}`}
-        >
-          <Clock className="w-5 h-5" />
-          <span className="text-[10px] font-bold uppercase">Recentes</span>
-        </button>
-      </div>
 
       <VideoPlayer 
         channel={selectedChannel} 

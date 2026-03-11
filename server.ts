@@ -18,8 +18,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
   const DATA_FILE = path.join(__dirname, "canais.json");
-  const USERS_FILE = path.join(__dirname, "contas.json");
-  const REPORTS_FILE = path.join(__dirname, "reports.json");
+  const USERS_FILE = path.join(__dirname, "users.json");
+  const DB_FILE = path.join(__dirname, "db.json");
 
   app.use(cors());
   app.use(bodyParser.json());
@@ -28,8 +28,11 @@ async function startServer() {
   if (!fs.existsSync(USERS_FILE)) {
     fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2));
   }
-  if (!fs.existsSync(REPORTS_FILE)) {
-    fs.writeFileSync(REPORTS_FILE, JSON.stringify({ reports: [] }, null, 2));
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify({ reports: [] }, null, 2));
+  }
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ siteConfig: { title: "TV Online HD", subtitle: "Os melhores canais ao vivo" }, categories: ["Todos"], channels: [] }, null, 2));
   }
 
   // Helper to read data
@@ -153,7 +156,7 @@ async function startServer() {
   // API Routes - Reports
   app.post("/api/reports", authenticateToken, (req: any, res) => {
     const { message } = req.body;
-    const data = readData(REPORTS_FILE);
+    const data = readData(DB_FILE);
     
     const newReport = {
       id: uuidv4(),
@@ -164,7 +167,7 @@ async function startServer() {
     };
 
     data.reports.push(newReport);
-    writeData(REPORTS_FILE, data);
+    writeData(DB_FILE, data);
     res.json({ success: true, message: "Reporte enviado com sucesso" });
   });
 
